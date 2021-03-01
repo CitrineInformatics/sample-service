@@ -1,0 +1,90 @@
+{
+    "Parameters": {
+        "ApplicationName": {
+            "Default": "mazeservice",
+            "Description": "will be used for api dns name and resources names",
+            "Type": "String",
+            "MinLength": "1",
+            "MaxLength": "64",
+            "AllowedPattern": "[a-z0-9]*",
+            "ConstraintDescription": "must contain only lowercase alphanumeric characters."
+        },
+        "AlertEmail": {
+            "Default": "derory.quentin@gmail.com",
+            "Type": "String",
+            "Description": "Email to alert"
+        },
+        "AlertPhone": {
+            "Default": "6502293065",
+            "Type": "String",
+            "Description": "phone to alert"
+        }
+    },
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Resources": {
+        "ContainerRegistry": {
+            "Type": "AWS::ECR::Repository",
+            "Properties": {
+                "RepositoryName": {
+                    "Ref": "ApplicationName"
+                },
+                "ImageTagMutability": "MUTABLE"
+            }
+        },
+        "AlertEmail": {
+            "Default": "derory.quentin@gmail.com",
+            "Type": "String",
+            "Description": "Email to alert"
+        },
+        "AlertPhone": {
+            "Default": "6502293065",
+            "Type": "String",
+            "Description": "phone to alert"
+        },
+        "NotificationTopic": {
+            "Type": "AWS::SNS::Topic",
+            "Properties": {
+                "TopicName": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            "Update-Notification-",
+                            {
+                                "Ref": "ApplicationName"
+                            }
+                        ]
+                    ]
+                },
+                "Subscription": [
+                    {
+                        "Endpoint": {
+                            "Ref": "AlertEmail"
+                        },
+                        "Protocol": "EMAIL"
+                    },
+                    {
+                        "Endpoint": {
+                            "Ref": "AlertPhone"
+                        },
+                        "Protocol": "sms"
+                    }
+                ]
+            }
+        }
+    },
+    "Outputs": {
+        "ECRURI": {
+            "Value": {
+                "Fn::Sub": "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ContainerRegistry}"
+            }
+        },
+                "UpdateTopic": {
+            "Value": {
+                "Ref": "NotificationTopic"
+            }
+        }
+    },
+    "Metadata": {
+        "AWS::CloudFormation::Designer": {}
+    }
+}

@@ -4,7 +4,7 @@ from . import maze
 app = Flask(__name__)
 
 
-@app.route("/")
+@app.route("/maze")
 def home():
     width = int(request.args.get("width", 20))
     height = int(request.args.get("height", 10))

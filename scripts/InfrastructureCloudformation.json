@@ -1,0 +1,989 @@
+{
+    "Parameters": {
+        "ApplicationName": {
+            "Default": "mazeservice",
+            "Description": "will be used for api dns name and resources names",
+            "Type": "String",
+            "MinLength": "1",
+            "MaxLength": "64",
+            "AllowedPattern": "[a-z0-9]*",
+            "ConstraintDescription": "must contain only lowercase alphanumeric characters."
+        },
+        "ECRURI": {
+            "Default": "690347597307.dkr.ecr.us-west-2.amazonaws.com/mazeservice",
+            "Description": "Docker container registry uri",
+            "Type": "String"
+        },
+        "Environment": {
+            "Default": "stage",
+            "Description": " Type of environment",
+            "Type": "String"
+        },
+        "DockerTag": {
+            "Default": "latest",
+            "Description": "Docker image tag",
+            "Type": "String"
+        },
+        "VpcId": {
+            "Default": "vpc-7c527704",
+            "Type": "AWS::EC2::VPC::Id",
+            "Description": "VpcId of your existing Virtual Private Cloud (VPC)",
+            "ConstraintDescription": "must be the VPC Id of an existing Virtual Private Cloud."
+        },
+        "CPUPolicyTargetValue": {
+            "Default": "70",
+            "Type": "String",
+            "Description": "The Average CPU Utilization threshold to scale up the server"
+        },
+        "Subnets": {
+            "Default": "subnet-3908d873,subnet-8abf3ed7,subnet-2af84e52",
+            "Type": "List<AWS::EC2::Subnet::Id>",
+            "Description": "The list of SubnetIds in your Virtual Private Cloud (VPC)",
+            "ConstraintDescription": "must be a list of at least two existing subnets associated with at least two different availability zones. They should be residing in the selected Virtual Private Cloud."
+        },
+        "AlertEmail": {
+            "Default": "derory.quentin@gmail.com",
+            "Type": "String",
+            "Description": "Email to alert"
+        },
+        "AlertPhone": {
+            "Default": "6502293065",
+            "Type": "String",
+            "Description": "phone to alert"
+        },
+        "KeyName": {
+            "Default": "maze-test",
+            "Description": "Name of an existing EC2 KeyPair to enable SSH access to the instances",
+            "Type": "AWS::EC2::KeyPair::KeyName",
+            "ConstraintDescription": "must be the name of an existing EC2 KeyPair."
+        },
+        "WebServerCapacity": {
+            "Default": "1",
+            "Description": "The initial number of WebServer instances",
+            "Type": "Number",
+            "MinValue": "1",
+            "MaxValue": "5",
+            "ConstraintDescription": "must be between 1 and 5 EC2 instances."
+        },
+        "InstanceType": {
+            "Description": "WebServer EC2 instance type",
+            "Type": "String",
+            "Default": "t1.micro",
+            "ConstraintDescription": "must be a valid EC2 instance type."
+        }, "ImageId": {
+            "Description": "WebServer EC2 instance ami",
+            "Type": "String",
+            "Default": "ami-0e8c04af2729ff1bb",
+            "ConstraintDescription": "must be a valid Image id."
+        }
+        
+    },
+    "Resources": {
+        "ApplicationLoadBalancer": {
+            "Type": "AWS::ElasticLoadBalancingV2::LoadBalancer",
+            "Properties": {
+                "SecurityGroups": [
+                    {
+                        "Ref": "LoadBalancerSG"
+                    }
+                ],
+                "Subnets": {
+                    "Ref": "Subnets"
+                }
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "4be7d876-5d6e-4b52-936a-a7e323043a3b"
+                }
+            }
+        },
+        "HttpListener": {
+            "Type": "AWS::ElasticLoadBalancingV2::Listener",
+            "Properties": {
+                "DefaultActions": [
+                    {
+                        "Type": "fixed-response",
+                        "FixedResponseConfig": {
+                            "StatusCode": "503"
+                        }
+                    }
+                ],
+                "LoadBalancerArn": {
+                    "Ref": "ApplicationLoadBalancer"
+                },
+                "Port": "80",
+                "Protocol": "HTTP"
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "40a5b9c5-4a8d-4ae2-a5a6-3afb540594c4"
+                }
+            }
+        },
+        "ALBTargetGroup": {
+            "Type": "AWS::ElasticLoadBalancingV2::TargetGroup",
+            "Properties": {
+                "HealthCheckIntervalSeconds": 10,
+                "HealthCheckTimeoutSeconds": 5,
+                "HealthyThresholdCount": 2,
+                "HealthCheckPath": "/health",
+                "Port": 5000,
+                "Protocol": "HTTP",
+                "UnhealthyThresholdCount": 5,
+                "VpcId": {
+                    "Ref": "VpcId"
+                },
+                "TargetGroupAttributes": [
+                    {
+                        "Key": "stickiness.enabled",
+                        "Value": "true"
+                    },
+                    {
+                        "Key": "stickiness.type",
+                        "Value": "lb_cookie"
+                    },
+                    {
+                        "Key": "stickiness.lb_cookie.duration_seconds",
+                        "Value": "30"
+                    }
+                ]
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "3ff65f24-dc68-4961-89d4-4e5444c8ee4e"
+                }
+            }
+        },
+        "WebServerGroup": {
+            "Type": "AWS::AutoScaling::AutoScalingGroup",
+            "Properties": {
+                "VPCZoneIdentifier": {
+                    "Ref": "Subnets"
+                },
+                "HealthCheckGracePeriod": "60",
+                "HealthCheckType": "ELB",
+                "LaunchConfigurationName": {
+                    "Ref": "LaunchConfig"
+                },
+                "MinSize": "1",
+                "MaxSize": "5",
+                "DesiredCapacity": {
+                    "Ref": "WebServerCapacity"
+                },
+                "TargetGroupARNs": [
+                    {
+                        "Ref": "ALBTargetGroup"
+                    }
+                ]
+            },
+            "CreationPolicy": {
+                "ResourceSignal": {
+                    "Timeout": "PT30M"
+                }
+            },
+            "UpdatePolicy": {
+                "AutoScalingRollingUpdate": {
+                    "MinInstancesInService": "1",
+                    "MaxBatchSize": "1",
+                    "PauseTime": "PT30M",
+                    "WaitOnResourceSignals": "true"
+                }
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "722eba1f-1fc5-43f4-a756-f2c597b05651"
+                }
+            }
+        },
+        "LaunchConfig": {
+            "Type": "AWS::AutoScaling::LaunchConfiguration",
+            "Metadata": {
+                "AWS::CloudFormation::Init": {
+                    "configSets": {
+                        "full_install": [
+                            "install_docker",
+                            "install_logs"
+                        ]
+                    },
+                    "install_docker": {
+                        "files": {
+                            "/etc/cfn/cfn-hup.conf": {
+                                "content": {
+                                    "Fn::Join": [
+                                        "",
+                                        [
+                                            "[main]\n",
+                                            "stack=",
+                                            {
+                                                "Ref": "AWS::StackId"
+                                            },
+                                            "\n",
+                                            "region=",
+                                            {
+                                                "Ref": "AWS::Region"
+                                            },
+                                            "\n"
+                                        ]
+                                    ]
+                                },
+                                "mode": "000400",
+                                "owner": "root",
+                                "group": "root"
+                            },
+                            "/etc/cfn/hooks.d/cfn-auto-reloader.conf": {
+                                "content": {
+                                    "Fn::Join": [
+                                        "",
+                                        [
+                                            "[cfn-auto-reloader-hook]\n",
+                                            "triggers=post.update\n",
+                                            "path=Resources.LaunchConfig.Metadata.AWS::CloudFormation::Init\n",
+                                            "action=/opt/aws/bin/cfn-init -v ",
+                                            "         --stack ",
+                                            {
+                                                "Ref": "AWS::StackName"
+                                            },
+                                            "         --resource LaunchConfig ",
+                                            "         --configsets full_install ",
+                                            "         --region ",
+                                            {
+                                                "Ref": "AWS::Region"
+                                            },
+                                            "\n",
+                                            "runas=root\n"
+                                        ]
+                                    ]
+                                },
+                                "mode": "000400",
+                                "owner": "root",
+                                "group": "root"
+                            },
+                            "/tmp/docker.env": {
+                                "content": {
+                                    "Fn::Join": [
+                                        "",
+                                        [
+                                            "TYPE_ENV=",
+                                            {
+                                                "Ref": "Environment"
+                                            },
+                                            "\n",
+                                            "AWS=true\n",
+                                            "AWS_REGION=",
+                                            {
+                                                "Ref": "AWS::Region"
+                                            },
+                                            "\n",
+                                            "API_DNS=",
+                                            {
+                                                "Fn::Join": [
+                                                    "",
+                                                    [
+                                                        {
+                                                            "Ref": "ApplicationName"
+                                                        },
+                                                        ".api.",
+                                                        "emodsafety.com"
+                                                    ]
+                                                ]
+                                            },
+                                            "\n"
+                                        ]
+                                    ]
+                                },
+                                "mode": "000400",
+                                "owner": "root",
+                                "group": "root"
+                            },
+                            "/tmp/install_docker": {
+                                "content": {
+                                    "Fn::Join": [
+                                        "",
+                                        [
+                                            "#!/bin/bash -e\n",
+                                            "yum update -y\n",
+                                            "amazon-linux-extras install docker\n",
+                                            "yum install -y awslogs\n",
+                                            "cd /home/ec2-user\n",
+                                            "usermod -a -G docker ec2-user\n",
+                                            "# Remove previous version of aws cli and install v2 \n",
+                                            "which aws |xargs sudo rm | true \n",
+                                            "sudo rm -rf /usr/local/aws-cli\n",
+                                            "curl \"https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip\" -o \"awscliv2.zip\" \n",
+                                            "unzip -o -qq awscliv2.zip\n",
+                                            "sudo ./aws/install\n",
+                                            "service docker start\n",
+                                            "export PATH=$PATH:/usr/local/bin\n",
+                                            "# Docker login to private registry \n",
+                                            {
+                                                "Fn::Join": [
+                                                    "",
+                                                    [
+                                                        "/usr/local/bin/aws ecr get-login-password --region us-west-2 | ",
+                                                        "docker login --username AWS --password-stdin ",
+                                                        {
+                                                            "Ref": "ECRURI"
+                                                        },
+                                                        "\n"
+                                                    ]
+                                                ]
+                                            },
+                                            "mkdir .docker | true\n",
+                                            "cp ~/.docker/config.json ./.docker/config.json\n"
+                                        ]
+                                    ]
+                                },
+                                "mode": "000500",
+                                "owner": "root",
+                                "group": "root"
+                            },
+                            "/home/ec2-user/start-application": {
+                                "content": {
+                                    "Fn::Join": [
+                                        "",
+                                        [
+                                            "#!/bin/bash -e\n",
+                                            "source /etc/environment\n",
+                                            "export HOME=/home/ec2-user\n",
+                                            "cd /home/ec2-user\n",
+                                            "# Startup the application\n",
+                                            {
+                                                "Fn::Join": [
+                                                    "",
+                                                    [
+                                                        "docker run -d -p 5000:5000 --restart unless-stopped ",
+                                                        "--log-driver=awslogs --log-opt awslogs-region=",
+                                                        {
+                                                            "Ref": "AWS::Region"
+                                                        },
+                                                        " --log-opt awslogs-group=",
+                                                        "Docker.",
+                                                        {
+                                                            "Ref": "Environment"
+                                                        },
+                                                        ".",
+                                                        {
+                                                            "Ref": "ApplicationName"
+                                                        },
+                                                        " --log-opt tag=simpleService.{{.ID}}  --log-opt awslogs-datetime-format='\\[%b %d, %Y %H:%M:%S\\]'",
+                                                        " --env-file /tmp/docker.env --name simpleService ",
+                                                        {
+                                                            "Ref": "ECRURI"
+                                                        },
+                                                        ":$DOCKER_TAG \n"
+                                                    ]
+                                                ]
+                                            }
+                                        ]
+                                    ]
+                                },
+                                "mode": "000500",
+                                "owner": "root",
+                                "group": "root"
+                            }
+                        },
+                        "commands": {
+                            "01_install_application": {
+                                "command": "/tmp/install_docker > /var/log/install_docker.log"
+                            },
+                            "02_configure_reboot": {
+                                "command": "echo /home/ec2-user/start-application >> /etc/rc.local"
+                            },
+                            "03_start_application": {
+                                "command": "/home/ec2-user/start-application"
+                            },
+                            "04_cleanup": {
+                                "command": "rm /tmp/install_docker"
+                            }
+                        }
+                    },
+                    "install_logs": {
+                        "packages": {
+                            "yum": {
+                                "awslogs": []
+                            }
+                        },
+                        "files": {
+                            "/etc/awslogs/awslogs.conf": {
+                                "content": {
+                                    "Fn::Join": [
+                                        "",
+                                        [
+                                            "[general]\n",
+                                            "state_file= /var/awslogs/state/agent-state\n",
+                                            "[/var/log/cloud-init.log]\n",
+                                            "file = /var/log/cloud-init.log\n",
+                                            "log_group_name = ",
+                                            {
+                                                "Ref": "CloudFormationLogs"
+                                            },
+                                            "\n",
+                                            "log_stream_name = {instance_id}/cloud-init.log\n",
+                                            "datetime_format = \n",
+                                            "[/var/log/cloud-init-output.log]\n",
+                                            "file = /var/log/cloud-init-output.log\n",
+                                            "log_group_name = ",
+                                            {
+                                                "Ref": "CloudFormationLogs"
+                                            },
+                                            "\n",
+                                            "log_stream_name = {instance_id}/cloud-init-output.log\n",
+                                            "datetime_format = \n",
+                                            "[/var/log/cfn-init.log]\n",
+                                            "file = /var/log/cfn-init.log\n",
+                                            "log_group_name = ",
+                                            {
+                                                "Ref": "CloudFormationLogs"
+                                            },
+                                            "\n",
+                                            "log_stream_name = {instance_id}/cfn-init.log\n",
+                                            "datetime_format = \n",
+                                            "[/var/log/cfn-hup.log]\n",
+                                            "file = /var/log/cfn-hup.log\n",
+                                            "log_group_name = ",
+                                            {
+                                                "Ref": "CloudFormationLogs"
+                                            },
+                                            "\n",
+                                            "log_stream_name = {instance_id}/cfn-hup.log\n",
+                                            "datetime_format = \n",
+                                            "[/var/log/cfn-wire.log]\n",
+                                            "file = /var/log/cfn-wire.log\n",
+                                            "log_group_name = ",
+                                            {
+                                                "Ref": "CloudFormationLogs"
+                                            },
+                                            "\n",
+                                            "log_stream_name = {instance_id}/cfn-wire.log\n",
+                                            "datetime_format = \n"
+                                        ]
+                                    ]
+                                },
+                                "mode": "000444",
+                                "owner": "root",
+                                "group": "root"
+                            },
+                            "/etc/awslogs/awscli.conf": {
+                                "content": {
+                                    "Fn::Join": [
+                                        "",
+                                        [
+                                            "[plugins]\n",
+                                            "cwlogs = cwlogs\n",
+                                            "[default]\n",
+                                            "region = ",
+                                            {
+                                                "Ref": "AWS::Region"
+                                            },
+                                            "\n"
+                                        ]
+                                    ]
+                                },
+                                "mode": "000444",
+                                "owner": "root",
+                                "group": "root"
+                            }
+                        },
+                        "commands": {
+                            "01_reinstall_awscli_v1": {
+                                "command": "yum -qy reinstall awscli"
+                            },
+                            "02_create_state_directory": {
+                                "command": "mkdir -p /var/awslogs/state"
+                            },
+                            "03_start_awslogsd": {
+                                "command": "systemctl start awslogsd"
+                            },
+                            "04_enable_awslogd": {
+                                "command": "systemctl enable awslogsd.service"
+                            }
+                        }
+                    },
+                    "AWS::CloudFormation::Designer": {
+                        "id": "387fcf3c-6956-4db2-870e-ec6fc1f6e21f"
+                    }
+                },
+                "AWS::CloudFormation::Designer": {
+                    "id": "d41742d8-2073-45a3-830a-7ef1ab41a8b8"
+                }
+            },
+            "Properties": {
+                "IamInstanceProfile": {
+                    "Fn::GetAtt": [
+                        "InstanceProfileWebServer",
+                        "Arn"
+                    ]
+                },
+                "ImageId":{
+                    "Ref": "ImageId"
+                    },
+                "InstanceType": {
+                    "Ref": "InstanceType"
+                },
+                "SecurityGroups": [
+                    {
+                        "Ref": "WebServerSecurityGroup"
+                    }
+                ],
+                "KeyName": {
+                    "Ref": "KeyName"
+                },
+                "UserData": {
+                    "Fn::Base64": {
+                        "Fn::Join": [
+                            "",
+                            [
+                                "#!/bin/bash -xe\n",
+                                "echo 'DOCKER_TAG=",
+                                {
+                                    "Ref": "DockerTag"
+                                },
+                                "' >> /etc/environment\n",
+                                "yum update -y aws-cfn-bootstrap\n",
+                                "/opt/aws/bin/cfn-init -v ",
+                                "         --stack ",
+                                {
+                                    "Ref": "AWS::StackId"
+                                },
+                                "         --resource LaunchConfig ",
+                                "         --configsets full_install ",
+                                "         --region ",
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "\n",
+                                "# Start up the cfn-hup daemon to listen for changes to the EC2 instance metadata\n",
+                                "/opt/aws/bin/cfn-hup || error_exit 'Failed to start cfn-hup'\n",
+                                "",
+                                "/opt/aws/bin/cfn-signal -e $? ",
+                                "         --stack ",
+                                {
+                                    "Ref": "AWS::StackId"
+                                },
+                                "         --resource WebServerGroup ",
+                                "         --region ",
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "\n"
+                            ]
+                        ]
+                    }
+                }
+            }
+        },
+        "WebServerSecurityGroup": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "Enable HTTP access locked down to the load balancer",
+                "SecurityGroupIngress": [
+                    {
+                        "IpProtocol": "tcp",
+                        "FromPort": "5000",
+                        "ToPort": "5000",
+                        "SourceSecurityGroupId": {
+                            "Fn::Select": [
+                                0,
+                                {
+                                    "Fn::GetAtt": [
+                                        "ApplicationLoadBalancer",
+                                        "SecurityGroups"
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "VpcId": {
+                    "Ref": "VpcId"
+                }
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "0acb8861-1a5e-4010-bdab-95d1cdf6585c"
+                }
+            }
+        },
+        "WebServerLogGroup": {
+            "Type": "AWS::Logs::LogGroup",
+            "Properties": {
+                "LogGroupName": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            "Docker.",
+                            {
+                                "Ref": "Environment"
+                            },
+                            ".",
+                            {
+                                "Ref": "ApplicationName"
+                            }
+                        ]
+                    ]
+                },
+                "RetentionInDays": 7
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "b74241dc-6120-4065-872d-3b112162361b"
+                }
+            }
+        },
+        "InstanceRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": [
+                                    "ec2.amazonaws.com"
+                                ]
+                            },
+                            "Action": [
+                                "sts:AssumeRole"
+                            ]
+                        }
+                    ]
+                },
+                "Policies": [
+                    {
+                        "PolicyName": "AllowLogstreaming",
+                        "PolicyDocument": {
+                            "Version": "2012-10-17",
+                            "Statement": [
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "logs:CreateLogStream",
+                                        "logs:PutLogEvents",
+                                        "logs:CreateLogGroup",
+                                        "logs:DescribeLogStreams"
+                                    ],
+                                    "Resource": [
+                                        {
+                                            "Fn::Join": [
+                                                "",
+                                                [
+                                                    "arn:aws:",
+                                                    "logs:",
+                                                    {
+                                                        "Ref": "AWS::Region"
+                                                    },
+                                                    ":*:*"
+                                                ]
+                                            ]
+                                        }
+                                    ]
+                                },
+                                {
+                                    "Effect": "Allow",
+                                    "Action": "s3:*",
+                                    "Resource": "*"
+                                },
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "ecr:GetAuthorizationToken",
+                                        "ecr:BatchCheckLayerAvailability",
+                                        "ecr:GetDownloadUrlForLayer",
+                                        "ecr:GetRepositoryPolicy",
+                                        "ecr:DescribeRepositories",
+                                        "ecr:ListImages",
+                                        "ecr:DescribeImages",
+                                        "ecr:BatchGetImage",
+                                        "ecr:GetLifecyclePolicy",
+                                        "ecr:GetLifecyclePolicyPreview",
+                                        "ecr:ListTagsForResource",
+                                        "ecr:DescribeImageScanFindings",
+                                        "ecr:InitiateLayerUpload",
+                                        "ecr:UploadLayerPart",
+                                        "ecr:CompleteLayerUpload",
+                                        "ecr:PutImage"
+                                    ],
+                                    "Resource": "*"
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "fd4385c9-b533-4e68-98a5-9b528fbf59f1"
+                }
+            }
+        },
+        "InstanceProfileWebServer": {
+            "Type": "AWS::IAM::InstanceProfile",
+            "Properties": {
+                "Path": "/",
+                "Roles": [
+                    {
+                        "Ref": "InstanceRole"
+                    }
+                ]
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "acee11b3-c0d6-4930-bfd2-9a6bb6dcbe1c"
+                }
+            }
+        },
+        "LoadBalancerSG": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "Enable HTTP and https access on the load balancer",
+                "SecurityGroupIngress": [
+                    {
+                        "IpProtocol": "tcp",
+                        "FromPort": "80",
+                        "ToPort": "80",
+                        "CidrIp": "0.0.0.0/0"
+                    }
+                ],
+                "VpcId": {
+                    "Ref": "VpcId"
+                }
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "e6f8d4a6-72dc-4256-9092-8fb9f26ced94"
+                }
+            }
+        },
+        "HttpListenerRule": {
+            "Type": "AWS::ElasticLoadBalancingV2::ListenerRule",
+            "Properties": {
+                "ListenerArn": {
+                    "Ref": "HttpListener"
+                },
+                "Actions": [
+                    {
+                        "Type": "forward",
+                        "TargetGroupArn": {
+                            "Ref": "ALBTargetGroup"
+                        }
+                    }
+                ],
+                "Conditions": [
+                    {
+                        "Field": "path-pattern",
+                        "PathPatternConfig": {
+                            "Values": [
+                                "/maze",
+                                "/healthcheck"
+                            ]
+                        }
+                    }
+                ],
+                "Priority": 1
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "11f0db1e-7325-4719-8c87-2920a03c5170"
+                }
+            }
+        },
+        "ASGPolicy": {
+            "Type": "AWS::AutoScaling::ScalingPolicy",
+            "Properties": {
+                "AutoScalingGroupName": {
+                    "Ref": "WebServerGroup"
+                },
+                "PolicyType": "TargetTrackingScaling",
+                "TargetTrackingConfiguration": {
+                    "PredefinedMetricSpecification": {
+                        "PredefinedMetricType": "ASGAverageCPUUtilization"
+                    },
+                    "TargetValue": {
+                        "Ref": "CPUPolicyTargetValue"
+                    }
+                }
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "9f324547-9abd-4d14-9bf6-76cd2d3807d1"
+                }
+            }
+        },
+        "LoadBalancerAlarm": {
+            "Type": "AWS::CloudWatch::Alarm",
+            "Properties": {
+                "AlarmName": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            "TargetResponseTime.",
+                            {
+                                "Ref": "Environment"
+                            },
+                            ".",
+                            {
+                                "Ref": "ApplicationName"
+                            }
+                        ]
+                    ]
+                },
+                "ActionsEnabled": true,
+                "AlarmActions": [
+                    {
+                        "Ref": "AlertTopic"
+                    }
+                ],
+                "Namespace": "AWS/ApplicationELB",
+                "Statistic": "Average",
+                "MetricName": "TargetResponseTime",
+                "Threshold": 60,
+                "Period": 60,
+                "EvaluationPeriods": 1,
+                "ComparisonOperator": "GreaterThanThreshold",
+                "Dimensions": [
+                    {
+                        "Name": "LoadBalancer",
+                        "Value": {
+                            "Ref": "ApplicationLoadBalancer"
+                        }
+                    }
+                ],
+                "TreatMissingData": "ignore"
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "5a4e8767-bf5f-4a3d-b3e5-98b638719121"
+                }
+            }
+        },
+        "TargetGroupAlarm": {
+            "Type": "AWS::CloudWatch::Alarm",
+            "Properties": {
+                "AlarmName": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            "HealthCheck.",
+                            {
+                                "Ref": "Environment"
+                            },
+                            ".",
+                            {
+                                "Ref": "ApplicationName"
+                            }
+                        ]
+                    ]
+                },
+                "ActionsEnabled": true,
+                "AlarmActions": [
+                    {
+                        "Ref": "AlertTopic"
+                    }
+                ],
+                "Namespace": "AWS/ApplicationELB",
+                "Statistic": "Average",
+                "MetricName": "HealthyHostCount",
+                "Threshold": 1,
+                "EvaluationPeriods": 1,
+                "Period": 60,
+                "ComparisonOperator": "LessThanThreshold",
+                "Dimensions": [
+                    {
+                        "Name": "LoadBalancer",
+                        "Value": {
+                            "Ref": "ALBTargetGroup"
+                        }
+                    }
+                ],
+                "TreatMissingData": "ignore"
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "11a0a85c-d2f1-4cd9-861a-a19d9e083e6c"
+                }
+            }
+        },
+        "AlertTopic": {
+            "Type": "AWS::SNS::Topic",
+            "Properties": {
+                "TopicName": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            "Alert-",
+                            {
+                                "Ref": "ApplicationName"
+                            }
+                        ]
+                    ]
+                },
+                "Subscription": [
+                    {
+                        "Endpoint": {
+                            "Ref": "AlertEmail"
+                        },
+                        "Protocol": "EMAIL"
+                    },
+                    {
+                        "Endpoint": {
+                            "Ref": "AlertPhone"
+                        },
+                        "Protocol": "sms"
+                    }
+                ]
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "bfc20f2c-42b4-429c-b841-2f8285f86c2e"
+                }
+            }
+        },
+        "CloudFormationLogs": {
+            "Type": "AWS::Logs::LogGroup",
+            "Properties": {
+                "LogGroupName": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            "CloudFormation.",
+                            {
+                                "Ref": "Environment"
+                            },
+                            ".",
+                            {
+                                "Ref": "ApplicationName"
+                            }
+                        ]
+                    ]
+                },
+                "RetentionInDays": 7
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "243d61af-e530-4543-94d7-cfee0b3e6058"
+                }
+            }
+        }
+    },
+    "Outputs": {
+        "Service": {
+            "Value": {
+                "Fn::Join": [
+                    "",
+                    [
+                        "http://",
+                        {
+                            "Fn::GetAtt": [
+                                "ApplicationLoadBalancer",
+                                "DNSName"
+                            ]
+                        },
+                        "/maze"
+                    ]
+                ]
+            },
+            "Description": "URL for the service"
+        }
+    }
+}
