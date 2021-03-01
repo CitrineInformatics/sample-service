@@ -18,6 +18,16 @@
             "Default": "6502293065",
             "Type": "String",
             "Description": "phone to alert"
+        },
+        "Environment": {
+            "Default": "stage",
+            "Description": " Type of environment",
+            "Type": "String"
+        },
+        "GithubURL": {
+            "Default": "https://github.com/quentinDERORY/sample-service",
+            "Description": " URL of the github repo (must be connected with your aws account)",
+            "Type": "String"
         }
     },
     "AWSTemplateFormatVersion": "2010-09-09",
@@ -29,17 +39,161 @@
                     "Ref": "ApplicationName"
                 },
                 "ImageTagMutability": "MUTABLE"
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "29b3799b-b05a-4b50-8f64-045467a74fbf"
+                }
             }
         },
-        "AlertEmail": {
-            "Default": "derory.quentin@gmail.com",
-            "Type": "String",
-            "Description": "Email to alert"
+        "CodeBuild": {
+            "Type": "AWS::CodeBuild::Project",
+            "Properties": {
+                "Artifacts": {
+                    "Type": "NO_ARTIFACTS"
+                },
+                "ServiceRole": {
+                    "Ref": "BuildRole"
+                },
+                "Source": {
+                    "Auth": {
+                        "Type": "OAUTH"
+                    },
+                    "Location": {
+                        "Ref": "GithubURL"
+                    },
+                    "Type": "GITHUB",
+                    "GitCloneDepth": 1,
+                    "ReportBuildStatus": true
+                },
+                "TimeoutInMinutes": 60,
+                "SourceVersion": "master",
+                "Cache": {
+                    "Type": "LOCAL",
+                    "Modes": [
+                        "LOCAL_DOCKER_LAYER_CACHE"
+                    ]
+                },
+                "LogsConfig": {
+                    "CloudWatchLogs": {
+                        "GroupName": {
+                            "Ref": "CodePipelineLogs"
+                        },
+                        "Status": "ENABLED",
+                        "StreamName": {
+                            "Fn::Sub": "${Environment}.${ApplicationName}.build"
+                        }
+                    }
+                },
+                "Environment": {
+                    "ComputeType": "BUILD_GENERAL1_SMALL",
+                    "EnvironmentVariables": [
+                        {
+                            "Name": "ECRURI",
+                            "Type": "PLAINTEXT",
+                            "Value": {
+                                "Fn::Sub": "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ContainerRegistry}"
+                            }
+                        }
+                    ],
+                    "PrivilegedMode": true,
+                    "Image": "aws/codebuild/standard:4.0",
+                    "ImagePullCredentialsType": "CODEBUILD",
+                    "Type": "LINUX_CONTAINER"
+                },
+                "Name": {
+                    "Fn::Sub": "${Environment}-${ApplicationName}-build"
+                },
+                "QueuedTimeoutInMinutes": 20
+            },
+            "DependsOn": [
+                "ContainerRegistry"
+            ],
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "ef904bf1-18f7-4967-804f-0875517092a5"
+                }
+            }
         },
-        "AlertPhone": {
-            "Default": "6502293065",
-            "Type": "String",
-            "Description": "phone to alert"
+        "BuildRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": "codebuild.amazonaws.com"
+                            },
+                            "Action": [
+                                "sts:AssumeRole"
+                            ]
+                        }
+                    ]
+                },
+                "Policies": [
+                    {
+                        "PolicyName": "AllowLogstreaming",
+                        "PolicyDocument": {
+                            "Version": "2012-10-17",
+                            "Statement": [
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "logs:CreateLogStream",
+                                        "logs:PutLogEvents",
+                                        "logs:CreateLogGroup",
+                                        "logs:DescribeLogStreams"
+                                    ],
+                                    "Resource": [
+                                        {
+                                            "Fn::Join": [
+                                                "",
+                                                [
+                                                    "arn:aws:",
+                                                    "logs:",
+                                                    {
+                                                        "Ref": "AWS::Region"
+                                                    },
+                                                    ":*:*"
+                                                ]
+                                            ]
+                                        }
+                                    ]
+                                },
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "ecr:GetAuthorizationToken",
+                                        "ecr:BatchCheckLayerAvailability",
+                                        "ecr:GetDownloadUrlForLayer",
+                                        "ecr:GetRepositoryPolicy",
+                                        "ecr:DescribeRepositories",
+                                        "ecr:ListImages",
+                                        "ecr:DescribeImages",
+                                        "ecr:BatchGetImage",
+                                        "ecr:GetLifecyclePolicy",
+                                        "ecr:GetLifecyclePolicyPreview",
+                                        "ecr:ListTagsForResource",
+                                        "ecr:DescribeImageScanFindings",
+                                        "ecr:InitiateLayerUpload",
+                                        "ecr:UploadLayerPart",
+                                        "ecr:CompleteLayerUpload",
+                                        "ecr:PutImage"
+                                    ],
+                                    "Resource": "*"
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "5c1d6b36-53cb-4b58-b2c5-cfda4ad320c1"
+                }
+            }
         },
         "NotificationTopic": {
             "Type": "AWS::SNS::Topic",
@@ -69,6 +223,37 @@
                         "Protocol": "sms"
                     }
                 ]
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "08348c97-f8ae-4c7f-9156-f55bcefac48e"
+                }
+            }
+        },
+        "CodePipelineLogs": {
+            "Type": "AWS::Logs::LogGroup",
+            "Properties": {
+                "LogGroupName": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            "CodePipeline.",
+                            {
+                                "Ref": "Environment"
+                            },
+                            ".",
+                            {
+                                "Ref": "ApplicationName"
+                            }
+                        ]
+                    ]
+                },
+                "RetentionInDays": 7
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "84a47305-5c48-4f69-814b-dd32eda16d2c"
+                }
             }
         }
     },
@@ -78,13 +263,77 @@
                 "Fn::Sub": "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ContainerRegistry}"
             }
         },
-                "UpdateTopic": {
+        "UpdateTopic": {
             "Value": {
                 "Ref": "NotificationTopic"
             }
         }
     },
     "Metadata": {
-        "AWS::CloudFormation::Designer": {}
+        "AWS::CloudFormation::Designer": {
+            "84a47305-5c48-4f69-814b-dd32eda16d2c": {
+                "size": {
+                    "width": 150,
+                    "height": 150
+                },
+                "position": {
+                    "x": 60,
+                    "y": 90
+                },
+                "z": 1,
+                "embeds": []
+            },
+            "08348c97-f8ae-4c7f-9156-f55bcefac48e": {
+                "size": {
+                    "width": 60,
+                    "height": 60
+                },
+                "position": {
+                    "x": 270,
+                    "y": 90
+                },
+                "z": 1,
+                "embeds": []
+            },
+            "5c1d6b36-53cb-4b58-b2c5-cfda4ad320c1": {
+                "size": {
+                    "width": 60,
+                    "height": 60
+                },
+                "position": {
+                    "x": 270,
+                    "y": 210
+                },
+                "z": 1,
+                "embeds": []
+            },
+            "29b3799b-b05a-4b50-8f64-045467a74fbf": {
+                "size": {
+                    "width": 60,
+                    "height": 60
+                },
+                "position": {
+                    "x": 60,
+                    "y": 300
+                },
+                "z": 1,
+                "embeds": []
+            },
+            "ef904bf1-18f7-4967-804f-0875517092a5": {
+                "size": {
+                    "width": 60,
+                    "height": 60
+                },
+                "position": {
+                    "x": 390,
+                    "y": 90
+                },
+                "z": 1,
+                "embeds": [],
+                "dependson": [
+                    "29b3799b-b05a-4b50-8f64-045467a74fbf"
+                ]
+            }
+        }
     }
 }

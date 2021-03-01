@@ -1,0 +1,29 @@
+version: 0.2
+phases: 
+  install:
+    runtime-versions:
+        docker: 18     
+    commands: 
+      - nohup /usr/local/bin/dockerd --host=unix:///var/run/docker.sock --host=tcp://127.0.0.1:2375 --storage-driver=overlay2&
+      - timeout 15 sh -c "until docker info; do echo .; sleep 1; done"
+  pre_build: 
+    commands: 
+    - echo Logging in to Amazon ECR.... 
+    - aws --version
+    - $(aws ecr get-login --no-include-email --region eu-west-1)
+    - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+  build:
+    commands: 
+    - echo Build started on `date` 
+    - echo Building the Docker image... 
+    - docker build -t $ECRURI:latest .
+    - docker tag $ECRURI:latest $ECRURI:$IMAGE_TAG 
+  post_build: 
+    commands: 
+    - echo Build completed on `date` 
+    - echo pushing to repo
+    - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECRURI
+    - docker push $ECRURI:latest
+    - docker push $ECRURI:$IMAGE_TAG
+    - echo Writing image definitions file... 
+    - printf '{"ImageURI":"%s"}' $ECRURI:$IMAGE_TAG 

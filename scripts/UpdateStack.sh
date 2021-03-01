@@ -1,15 +1,17 @@
-
+set -e
+set -o pipefail
 
 export NEWDOCKERTAG=$1
+export BRANCH=$2
 
-export ECRURI=$(aws cloudformation describe-stacks --stack-name ecrMaze --query "Stacks[0].Outputs[0].OutputValue" --output text)
+export ECRURI=$(aws cloudformation describe-stacks --stack-name mazeECR --query "Stacks[0].Outputs[?OutputKey=='ECRURI'].OutputValue" --output text)
 
-cd ..
+export BUILDID=$(aws codebuild start-build --project-name stage-mazeservice-build --source-version $BRANCH --environment-variables-override name=IMAGE_TAG,value=$NEWDOCKERTAG,type=PLAINTEXT --query "build.id" --output text)
 
-echo AWSREGION=$(aws configure get region)
+export BUILDSTATUS=$(aws codebuild batch-get-builds --ids $BUILDID --query "builds[0].buildStatus" --output text)
 
-docker build  -t $ECRURI:$DOCKERTAG .
-aws ecr get-login-password --region $AWSREGION | docker login --username AWS --password-stdin $ECRURI
-docker push $ECRURI:$DOCKERTAG 
+while [ $BUILDSTATUS != "SUCCEEDED" ]; do sleep 20; BUILDSTATUS=$(aws codebuild batch-get-builds --ids $BUILDID --query "builds[0].buildStatus" --output text); echo $BUILDSTATUS; done
 
-aws cloudformation update-stack --stack-name ecrMazeIT --use-previous-template --parameters ParameterKey=DockerTag,ParameterValue=$NEWDOCKERTAG ParameterKey=AlertEmail,UsePreviousValue=true ParameterKey=AlertPhone,UsePreviousValue=true ParameterKey=ECRURI,UsePreviousValue=true ParameterKey=VpcId,UsePreviousValue=true ParameterKey=Subnets,UsePreviousValue=true --capabilities CAPABILITY_NAMED_IAM
+aws cloudformation update-stack --stack-name mazeIT --use-previous-template --parameters ParameterKey=DockerTag,ParameterValue=$NEWDOCKERTAG ParameterKey=AlertEmail,UsePreviousValue=true ParameterKey=AlertPhone,UsePreviousValue=true ParameterKey=ECRURI,UsePreviousValue=true ParameterKey=VpcId,UsePreviousValue=true ParameterKey=Subnets,UsePreviousValue=true --capabilities CAPABILITY_NAMED_IAM
+
+aws cloudformation wait stack-update-complete --stack-name mazeIT

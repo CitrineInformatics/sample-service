@@ -126,7 +126,7 @@
                 "HealthCheckIntervalSeconds": 10,
                 "HealthCheckTimeoutSeconds": 5,
                 "HealthyThresholdCount": 2,
-                "HealthCheckPath": "/health",
+                "HealthCheckPath": "/healthcheck",
                 "Port": 5000,
                 "Protocol": "HTTP",
                 "UnhealthyThresholdCount": 5,
@@ -160,7 +160,7 @@
                 "VPCZoneIdentifier": {
                     "Ref": "Subnets"
                 },
-                "HealthCheckGracePeriod": "60",
+                "HealthCheckGracePeriod": "400",
                 "HealthCheckType": "ELB",
                 "LaunchConfigurationName": {
                     "Ref": "LaunchConfig"
